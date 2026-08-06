@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Plus, Trash2 } from "lucide-react"
+import { Plus, Trash2, Calculator, TrendingUp } from "lucide-react"
 import { usePos } from "@/lib/pos-store"
 import type { ServiceCategory, ServiceIconKey } from "@/lib/pos-types"
 import { Modal } from "@/components/ui/modal"
@@ -17,18 +17,47 @@ export function ManageServicesModal({
   const { services, updateService, removeService, addService } = usePos()
   const [name, setName] = useState("")
   const [price, setPrice] = useState("")
+  const [cost, setCost] = useState("")
   const [stock, setStock] = useState("")
   const [unit, setUnit] = useState("unidad")
   const [category, setCategory] = useState<ServiceCategory>("servicios")
   const [icon, setIcon] = useState<ServiceIconKey>("file")
 
+  // Calculadora Comercial (Tira / Paquete / Caja)
+  const [showCalc, setShowCalc] = useState(false)
+  const [packPrice, setPackPrice] = useState("")
+  const [packUnits, setPackUnits] = useState("")
+  const [targetPrice, setTargetPrice] = useState("")
+
   const isPhysicalProduct = category === "golosinas" || category === "libreria" || category === "aseo"
+
+  // Cálculos dinámicos en vivo para la tira/paquete
+  const parsedPackCost = Number(packPrice.replace(",", ".")) || 0
+  const parsedPackUnits = Number(packUnits) || 0
+  const parsedTargetPrice = Number(targetPrice.replace(",", ".")) || 0
+
+  const calculatedUnitCost = parsedPackUnits > 0 ? parsedPackCost / parsedPackUnits : 0
+  const calculatedProfitPerUnit = parsedTargetPrice - calculatedUnitCost
+  const calculatedTotalProfit = calculatedProfitPerUnit * parsedPackUnits
+
+  function applyPackCalc() {
+    if (calculatedUnitCost > 0) {
+      setCost(calculatedUnitCost.toFixed(2))
+      if (parsedTargetPrice > 0) setPrice(parsedTargetPrice.toFixed(2))
+      if (!stock && parsedPackUnits > 0) setStock(String(parsedPackUnits))
+      setShowCalc(false)
+    }
+  }
 
   function create() {
     if (!name.trim()) return
+    const parsedPrice = Math.max(0, Number(price.replace(",", ".")) || 0)
+    const parsedCost = Math.max(0, Number(cost.replace(",", ".")) || 0)
+
     addService({
       name: name.trim(),
-      price: Math.max(0, Number(price.replace(",", ".")) || 0),
+      price: parsedPrice,
+      cost: parsedCost,
       ...(isPhysicalProduct
         ? {
             stock: Math.max(0, Number(stock) || 0),
@@ -41,6 +70,7 @@ export function ManageServicesModal({
     })
     setName("")
     setPrice("")
+    setCost("")
     setStock("")
     setUnit("unidad")
     setIcon("file")
@@ -50,13 +80,16 @@ export function ManageServicesModal({
     <Modal
       open={open}
       onClose={onClose}
-      title="Gestión de Productos e Inventario"
-      description="Edita precios y stock disponible. Los cambios se guardan al instante."
+      title="Gestión de Precios, Costos e Inventario"
+      description="Calcula el costo por tira/paquete, tu precio de venta y tu ganancia neta."
       size="lg"
     >
       <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
         {services.map((s) => {
           const hasStockControl = s.stock !== undefined
+          const unitCost = s.cost ?? 0
+          const profit = s.price - unitCost
+
           return (
             <div
               key={s.id}
@@ -73,8 +106,9 @@ export function ManageServicesModal({
                 aria-label="Nombre del producto"
               />
 
-              <div className="flex items-center gap-1 rounded-xl border border-input bg-background px-2">
-                <span className="text-xs font-bold text-muted-foreground">S/.</span>
+              {/* Precio Venta */}
+              <div className="flex items-center gap-1 rounded-xl border border-input bg-background px-2" title="Precio de venta al público">
+                <span className="text-xs font-bold text-muted-foreground">Venta: S/.</span>
                 <input
                   type="number"
                   min={0}
@@ -87,7 +121,24 @@ export function ManageServicesModal({
                   }}
                   onFocus={(e) => e.target.select()}
                   className="h-11 w-16 bg-transparent text-center text-sm font-extrabold outline-none"
-                  aria-label="Precio"
+                />
+              </div>
+
+              {/* Costo Compra */}
+              <div className="flex items-center gap-1 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-2" title="Costo unitario de compra">
+                <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">Costo: S/.</span>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.10"
+                  inputMode="decimal"
+                  value={s.cost === 0 ? "" : (s.cost ?? "")}
+                  onChange={(e) => {
+                    const val = e.target.value
+                    updateService(s.id, { cost: val === "" ? 0 : Number(val.replace(",", ".")) })
+                  }}
+                  onFocus={(e) => e.target.select()}
+                  className="h-11 w-16 bg-transparent text-center text-sm font-extrabold text-emerald-600 outline-none"
                 />
               </div>
 
@@ -104,16 +155,19 @@ export function ManageServicesModal({
                     }}
                     onFocus={(e) => e.target.select()}
                     className="h-11 w-16 bg-transparent text-center text-sm font-extrabold text-primary outline-none"
-                    aria-label="Stock"
                   />
                 </div>
               ) : null}
+
+              {/* Muestra ganancia unitaria */}
+              <div className="hidden sm:block text-xs font-bold text-emerald-600 bg-emerald-500/10 px-2.5 py-1.5 rounded-lg">
+                +{profit > 0 ? `S/. ${profit.toFixed(2)}` : "S/. 0.00"}
+              </div>
 
               <button
                 type="button"
                 onClick={() => removeService(s.id)}
                 className="grid size-11 shrink-0 place-items-center rounded-xl text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                aria-label={`Eliminar ${s.name}`}
               >
                 <Trash2 className="size-5" />
               </button>
@@ -122,21 +176,23 @@ export function ManageServicesModal({
         })}
       </div>
 
+      {/* Formulario para Nuevo Producto */}
       <div className="mt-5 rounded-3xl border-2 border-dashed border-border p-4 bg-secondary/20">
         <p className="mb-3 text-base font-extrabold">Añadir Nuevo Producto / Servicio</p>
         <div className="grid gap-3 sm:grid-cols-3">
           <label className="text-sm font-bold sm:col-span-3">
-            Nombre del producto o servicio
+            Nombre del producto
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
+              onFocus={(e) => e.target.select()}
               placeholder="Ej. Chizitos, Cuaderno, Copia DNI"
               className="mt-1 h-12 w-full rounded-xl border border-input bg-background px-3 text-base outline-none focus:border-primary font-medium"
             />
           </label>
 
           <label className="text-sm font-bold">
-            Precio (S/.)
+            Precio Venta (S/.)
             <input
               type="number"
               min={0}
@@ -145,24 +201,129 @@ export function ManageServicesModal({
               value={price}
               onChange={(e) => setPrice(e.target.value)}
               onFocus={(e) => e.target.select()}
-              placeholder="0.00"
+              placeholder="Ej. 1.00"
               className="mt-1 h-12 w-full rounded-xl border border-input bg-background px-3 text-base outline-none focus:border-primary font-bold"
             />
           </label>
 
+          <div className="text-sm font-bold">
+            <div className="flex justify-between items-center">
+              <span>Costo Compra (S/.)</span>
+              <button
+                type="button"
+                onClick={() => setShowCalc(!showCalc)}
+                className="text-xs text-primary flex items-center gap-1 underline font-bold"
+              >
+                <Calculator className="size-3.5" /> Calculadora Tira
+              </button>
+            </div>
+            <input
+              type="number"
+              min={0}
+              step="0.10"
+              inputMode="decimal"
+              value={cost}
+              onChange={(e) => setCost(e.target.value)}
+              onFocus={(e) => e.target.select()}
+              placeholder="Ej. 0.70"
+              className="mt-1 h-12 w-full rounded-xl border border-emerald-500/50 bg-emerald-500/5 px-3 text-base outline-none focus:border-emerald-600 font-bold text-emerald-600"
+            />
+          </div>
+
           {isPhysicalProduct ? (
             <label className="text-sm font-bold">
-              Stock Inicial (unidades)
+              Stock Inicial
               <input
                 type="number"
                 min={0}
                 value={stock}
                 onChange={(e) => setStock(e.target.value)}
                 onFocus={(e) => e.target.select()}
-                placeholder="Ej. 20"
+                placeholder="Ej. 10"
                 className="mt-1 h-12 w-full rounded-xl border border-input bg-background px-3 text-base outline-none focus:border-primary font-bold text-primary"
               />
             </label>
+          ) : null}
+
+          {/* CALCULADORA DE MARGEN DE GANANCIA POR TIRA / PAQUETE */}
+          {showCalc ? (
+            <div className="sm:col-span-3 rounded-2xl border-2 border-primary/40 bg-accent/30 p-4 space-y-3">
+              <div className="flex items-center gap-2 text-sm font-bold text-primary">
+                <TrendingUp className="size-5" />
+                Calculadora de Ganancias por Tira / Paquete
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                <div>
+                  <label className="text-xs font-semibold text-muted-foreground">¿Cuánto te costó la tira?</label>
+                  <input
+                    type="number"
+                    step="0.10"
+                    placeholder="Ej. 7.00"
+                    value={packPrice}
+                    onChange={(e) => setPackPrice(e.target.value)}
+                    onFocus={(e) => e.target.select()}
+                    className="mt-1 h-11 w-full rounded-xl border border-input bg-background px-3 text-sm font-bold outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-muted-foreground">¿Cuántos vienen?</label>
+                  <input
+                    type="number"
+                    placeholder="Ej. 10"
+                    value={packUnits}
+                    onChange={(e) => setPackUnits(e.target.value)}
+                    onFocus={(e) => e.target.select()}
+                    className="mt-1 h-11 w-full rounded-xl border border-input bg-background px-3 text-sm font-bold outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-muted-foreground">¿A cuánto venderás c/u?</label>
+                  <input
+                    type="number"
+                    step="0.10"
+                    placeholder="Ej. 1.00"
+                    value={targetPrice}
+                    onChange={(e) => setTargetPrice(e.target.value)}
+                    onFocus={(e) => e.target.select()}
+                    className="mt-1 h-11 w-full rounded-xl border border-input bg-background px-3 text-sm font-bold outline-none text-primary"
+                  />
+                </div>
+              </div>
+
+              {/* Panel de resultados de Ganancias */}
+              {calculatedUnitCost > 0 ? (
+                <div className="rounded-xl bg-background border border-border p-3 text-xs space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Costo por unidad:</span>
+                    <strong className="text-foreground">S/. {calculatedUnitCost.toFixed(2)}</strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Ganancia por unidad vendida:</span>
+                    <strong className={calculatedProfitPerUnit >= 0 ? "text-emerald-600 font-extrabold" : "text-destructive"}>
+                      S/. {calculatedProfitPerUnit.toFixed(2)}
+                    </strong>
+                  </div>
+                  <div className="flex justify-between pt-1 border-t border-border font-bold text-sm">
+                    <span>Ganancia total del paquete:</span>
+                    <span className={calculatedTotalProfit >= 0 ? "text-emerald-600 font-extrabold" : "text-destructive"}>
+                      S/. {calculatedTotalProfit.toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+              ) : null}
+
+              <button
+                type="button"
+                onClick={applyPackCalc}
+                disabled={calculatedUnitCost <= 0}
+                className="h-11 w-full rounded-xl bg-primary text-sm font-bold text-primary-foreground disabled:opacity-40"
+              >
+                Aplicar Datos al Producto
+              </button>
+            </div>
           ) : null}
 
           <label className="text-sm font-bold">
@@ -170,13 +331,13 @@ export function ManageServicesModal({
             <input
               value={unit}
               onChange={(e) => setUnit(e.target.value)}
-              placeholder="unidad, hoja, paquete..."
+              placeholder="unidad, paquete..."
               className="mt-1 h-12 w-full rounded-xl border border-input bg-background px-3 text-base outline-none focus:border-primary font-medium"
             />
           </label>
 
           <label className="text-sm font-bold sm:col-span-2">
-            Categoría / Sección
+            Categoría
             <select
               value={category}
               onChange={(e) => setCategory(e.target.value as ServiceCategory)}
@@ -189,27 +350,6 @@ export function ManageServicesModal({
               <option value="aseo">🪥 Aseo Personal (Con Stock)</option>
             </select>
           </label>
-
-          <div className="text-sm font-bold sm:col-span-3">
-            Ícono visual
-            <div className="mt-1 flex flex-wrap gap-2 max-h-28 overflow-y-auto p-1">
-              {SERVICE_ICON_KEYS.map((k) => (
-                <button
-                  key={k}
-                  type="button"
-                  onClick={() => setIcon(k)}
-                  className={`grid size-11 place-items-center rounded-xl border transition-colors ${
-                    icon === k
-                      ? "border-primary bg-accent text-primary shadow-sm"
-                      : "border-border bg-card hover:bg-secondary"
-                  }`}
-                  aria-label={`Ícono ${k}`}
-                >
-                  <ServiceIcon name={k} className="size-5" />
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
 
         <button
@@ -217,7 +357,7 @@ export function ManageServicesModal({
           onClick={create}
           className="mt-4 flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-primary text-lg font-bold text-primary-foreground transition-opacity hover:opacity-90 shadow-sm"
         >
-          <Plus className="size-6" /> Guardar
+          <Plus className="size-6" /> Guardar Producto
         </button>
       </div>
     </Modal>

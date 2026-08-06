@@ -47,6 +47,7 @@ export interface Service {
   id: string
   name: string
   price: number
+  cost?: number
   unit: string
   icon: ServiceIconKey
   category: ServiceCategory
