@@ -10,8 +10,26 @@ import { ServiceIcon } from "@/components/service-icon"
 
 const QUICK = [1, 2, 5, 10, 20]
 
-function suggestRingPrice(sheets: number, base: number) {
-  if (sheets <= 0) return base
+// Sugerencia de precio por rango de hojas (usa rangos creados o regla predeterminada)
+function suggestRingPrice(service: Service, sheets: number) {
+  if (sheets <= 0) return service.price
+
+  // 1. Si el producto tiene rangos personalizados creados en administración
+  if (service.tieredPrices && service.tieredPrices.length > 0) {
+    const matched = service.tieredPrices.find(
+      (t) => sheets >= t.minSheets && sheets <= t.maxSheets
+    )
+    if (matched) return matched.price
+
+    // Si supera el máximo configurado, toma la tarifa más alta
+    const sorted = [...service.tieredPrices].sort((a, b) => b.maxSheets - a.maxSheets)
+    if (sorted.length > 0 && sheets > sorted[0].maxSheets) {
+      return sorted[0].price
+    }
+  }
+
+  // 2. Regla predeterminada en caso de no haber rangos personalizados
+  const base = service.price
   if (sheets <= 50) return base
   if (sheets <= 100) return base + 1
   if (sheets <= 200) return base + 2
@@ -26,7 +44,6 @@ export function ServiceQuantityModal({
   onClose: () => void
 }) {
   const { addItem } = useCart()
-  // Usamos un string para el input de cantidad para que se pueda borrar libremente
   const [quantityInput, setQuantityInput] = useState("1")
   const [unitPrice, setUnitPrice] = useState(0)
   const [sheets, setSheets] = useState(0)
@@ -39,14 +56,14 @@ export function ServiceQuantityModal({
     }
   }, [service])
 
+  // Actualiza el precio sugerido según las hojas
   const suggested = useMemo(
-    () => (service?.perSheetHint ? suggestRingPrice(sheets, service.price) : null),
+    () => (service?.perSheetHint || service?.tieredPrices ? suggestRingPrice(service, sheets) : null),
     [service, sheets],
   )
 
   if (!service) return null
 
-  // Calculamos la cantidad numérica para el subtotal
   const parsedQty = Math.max(1, Number(quantityInput) || 1)
   const subtotal = unitPrice * parsedQty
 
@@ -55,7 +72,7 @@ export function ServiceQuantityModal({
     addItem({
       serviceId: service.id,
       name:
-        service.perSheetHint && sheets > 0
+        (service.perSheetHint || service.tieredPrices) && sheets > 0
           ? `${service.name} (${sheets} hojas)`
           : service.name,
       unitPrice,
@@ -92,8 +109,8 @@ export function ServiceQuantityModal({
         </div>
       </div>
 
-      {/* Estimador de hojas (anillado) */}
-      {service.perSheetHint ? (
+      {/* Estimador de hojas (Anillados, Enmicados, etc.) */}
+      {service.perSheetHint || service.tieredPrices ? (
         <div className="mt-4 rounded-2xl border border-border p-4">
           <label className="text-sm font-bold">Cantidad de hojas del documento</label>
           <div className="mt-2 flex items-center gap-3">
@@ -102,7 +119,13 @@ export function ServiceQuantityModal({
               min={0}
               inputMode="numeric"
               value={sheets === 0 ? "" : sheets}
-              onChange={(e) => setSheets(Math.max(0, Number(e.target.value) || 0))}
+              onChange={(e) => {
+                const num = Math.max(0, Number(e.target.value) || 0)
+                setSheets(num)
+                if (num > 0 && service) {
+                  setUnitPrice(suggestRingPrice(service, num))
+                }
+              }}
               onFocus={(e) => e.target.select()}
               placeholder="0"
               className="h-14 w-32 rounded-xl border border-input bg-background px-3 text-center text-2xl font-bold outline-none focus:border-primary"
@@ -115,11 +138,11 @@ export function ServiceQuantityModal({
               >
                 Precio sugerido:{" "}
                 <span className="text-base font-extrabold text-primary">{soles(suggested)}</span>
-                <span className="block text-xs text-muted-foreground">Toca para usarlo</span>
+                <span className="block text-xs text-muted-foreground">Toca para aplicar tarifa</span>
               </button>
             ) : (
               <p className="flex-1 text-sm text-muted-foreground">
-                Ingresa las hojas para sugerir el costo del anillo.
+                Ingresa las hojas para calcular el costo sugerido.
               </p>
             )}
           </div>
@@ -138,14 +161,14 @@ export function ServiceQuantityModal({
           >
             <Minus className="size-6" />
           </button>
-          
+
           <input
             type="number"
             min={1}
             inputMode="numeric"
             value={quantityInput}
-            onChange={(e) => setQuantityInput(e.target.value)} // Permite borrar libremente el 1
-            onFocus={(e) => e.target.select()} // Selecciona todo al hacer clic para escribir directo
+            onChange={(e) => setQuantityInput(e.target.value)}
+            onFocus={(e) => e.target.select()}
             onBlur={() => {
               if (!quantityInput || Number(quantityInput) <= 0) {
                 setQuantityInput("1")
@@ -198,7 +221,7 @@ export function ServiceQuantityModal({
         </div>
       </div>
 
-      {/* Precio editable con selección automática al hacer clic */}
+      {/* Precio editable libremente */}
       <div className="mt-4 rounded-2xl border border-border p-4">
         <label className="text-sm font-bold">Precio por {service.unit} (editable)</label>
         <div className="mt-2 flex items-center gap-2">

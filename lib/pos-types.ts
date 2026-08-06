@@ -43,6 +43,13 @@ export type ServiceIconKey =
   | "soap"
   | "tissue"
 
+// Rango de precios por hojas (Ej. de 1 a 30 hojas -> S/. 4.00)
+export interface TieredPrice {
+  minSheets: number
+  maxSheets: number
+  price: number
+}
+
 export interface Service {
   id: string
   name: string
@@ -55,6 +62,7 @@ export interface Service {
   isFavorite?: boolean
   stock?: number
   minStock?: number
+  tieredPrices?: TieredPrice[] // Lista de precios por rango de hojas
 }
 
 export interface CartItem {

@@ -1,11 +1,11 @@
 "use client"
 
 import { useState } from "react"
-import { Plus, Trash2, Calculator, TrendingUp } from "lucide-react"
+import { Plus, Trash2, Calculator, TrendingUp, Layers } from "lucide-react"
 import { usePos } from "@/lib/pos-store"
-import type { ServiceCategory, ServiceIconKey } from "@/lib/pos-types"
+import type { ServiceCategory, ServiceIconKey, TieredPrice } from "@/lib/pos-types"
 import { Modal } from "@/components/ui/modal"
-import { ServiceIcon, SERVICE_ICON_KEYS } from "@/components/service-icon"
+import { ServiceIcon } from "@/components/service-icon"
 
 export function ManageServicesModal({
   open,
@@ -29,6 +29,12 @@ export function ManageServicesModal({
   const [packUnits, setPackUnits] = useState("")
   const [targetPrice, setTargetPrice] = useState("")
 
+  // Configuración de Rangos por Hojas (Anillados, Enmicados)
+  const [tieredPrices, setTieredPrices] = useState<TieredPrice[]>([])
+  const [minHojas, setMinHojas] = useState("")
+  const [maxHojas, setMaxHojas] = useState("")
+  const [tierCost, setTierCost] = useState("")
+
   const isPhysicalProduct = category === "golosinas" || category === "libreria" || category === "aseo"
 
   // Cálculos dinámicos en vivo para la tira/paquete
@@ -49,6 +55,23 @@ export function ManageServicesModal({
     }
   }
 
+  function addTier() {
+    const min = Number(minHojas) || 1
+    const max = Number(maxHojas) || 100
+    const p = Number(tierCost.replace(",", ".")) || 0
+
+    if (p > 0) {
+      setTieredPrices((prev) => [...prev, { minSheets: min, maxSheets: max, price: p }])
+      setMinHojas(String(max + 1))
+      setMaxHojas("")
+      setTierCost("")
+    }
+  }
+
+  function removeTier(index: number) {
+    setTieredPrices((prev) => prev.filter((_, i) => i !== index))
+  }
+
   function create() {
     if (!name.trim()) return
     const parsedPrice = Math.max(0, Number(price.replace(",", ".")) || 0)
@@ -67,13 +90,16 @@ export function ManageServicesModal({
       unit: unit.trim() || "unidad",
       category,
       icon,
+      tieredPrices: tieredPrices.length > 0 ? tieredPrices : undefined,
     })
+
     setName("")
     setPrice("")
     setCost("")
     setStock("")
     setUnit("unidad")
     setIcon("file")
+    setTieredPrices([])
   }
 
   return (
@@ -81,7 +107,7 @@ export function ManageServicesModal({
       open={open}
       onClose={onClose}
       title="Gestión de Precios, Costos e Inventario"
-      description="Calcula el costo por tira/paquete, tu precio de venta y tu ganancia neta."
+      description="Calcula costos de tiras/paquetes o configura tarifas por rango de hojas."
       size="lg"
     >
       <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
@@ -176,23 +202,23 @@ export function ManageServicesModal({
         })}
       </div>
 
-      {/* Formulario para Nuevo Producto */}
-      <div className="mt-5 rounded-3xl border-2 border-dashed border-border p-4 bg-secondary/20">
-        <p className="mb-3 text-base font-extrabold">Añadir Nuevo Producto / Servicio</p>
+      {/* Formulario para Nuevo Producto / Servicio */}
+      <div className="mt-5 rounded-3xl border-2 border-dashed border-border p-4 bg-secondary/20 space-y-3">
+        <p className="text-base font-extrabold">Añadir Nuevo Producto / Servicio</p>
         <div className="grid gap-3 sm:grid-cols-3">
           <label className="text-sm font-bold sm:col-span-3">
-            Nombre del producto
+            Nombre del producto o servicio
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
               onFocus={(e) => e.target.select()}
-              placeholder="Ej. Chizitos, Cuaderno, Copia DNI"
+              placeholder="Ej. Chizitos, Anillado Espiral, Cuaderno"
               className="mt-1 h-12 w-full rounded-xl border border-input bg-background px-3 text-base outline-none focus:border-primary font-medium"
             />
           </label>
 
           <label className="text-sm font-bold">
-            Precio Venta (S/.)
+            Precio Venta Base (S/.)
             <input
               type="number"
               min={0}
@@ -344,7 +370,7 @@ export function ManageServicesModal({
               className="mt-1 h-12 w-full rounded-xl border border-input bg-background px-3 text-base outline-none focus:border-primary font-bold"
             >
               <option value="copias">📄 Impresiones y Copias (Sin Stock)</option>
-              <option value="servicios">🌀 Servicios Adicionales (Sin Stock)</option>
+              <option value="servicios">🌀 Servicios Adicionales (Anillados/Sin Stock)</option>
               <option value="golosinas">🍬 Golosinas y Snacks (Con Stock)</option>
               <option value="libreria">✏️ Librería y Papelería (Con Stock)</option>
               <option value="aseo">🪥 Aseo Personal (Con Stock)</option>
@@ -352,12 +378,68 @@ export function ManageServicesModal({
           </label>
         </div>
 
+        {/* CREADOR DE RANGOS DE PRECIOS POR HOJAS (Solo para Anillados / Servicios) */}
+        {!isPhysicalProduct ? (
+          <div className="rounded-2xl border-2 border-primary/30 bg-accent/20 p-3 space-y-2">
+            <p className="text-xs font-bold text-primary flex items-center gap-1.5">
+              <Layers className="size-4" /> Configurar Tarifas por Cantidad de Hojas (Ej: 1 a 50 hojas = S/. 6.00)
+            </p>
+
+            <div className="grid grid-cols-3 gap-2">
+              <input
+                type="number"
+                placeholder="De Hojas (Ej. 1)"
+                value={minHojas}
+                onChange={(e) => setMinHojas(e.target.value)}
+                className="h-10 rounded-xl border px-3 text-xs bg-background font-semibold"
+              />
+              <input
+                type="number"
+                placeholder="Hasta Hojas (Ej. 50)"
+                value={maxHojas}
+                onChange={(e) => setMaxHojas(e.target.value)}
+                className="h-10 rounded-xl border px-3 text-xs bg-background font-semibold"
+              />
+              <input
+                type="number"
+                step="0.50"
+                placeholder="Precio (Ej. 6.00)"
+                value={tierCost}
+                onChange={(e) => setTierCost(e.target.value)}
+                className="h-10 rounded-xl border px-3 text-xs bg-background font-extrabold text-primary"
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={addTier}
+              className="h-10 w-full rounded-xl bg-secondary border border-primary/30 text-xs font-bold text-primary hover:bg-accent"
+            >
+              + Agregar Rango a la Lista
+            </button>
+
+            {tieredPrices.length > 0 ? (
+              <div className="mt-2 space-y-1">
+                {tieredPrices.map((t, idx) => (
+                  <div key={idx} className="flex items-center justify-between rounded-lg bg-background p-2 text-xs font-bold">
+                    <span>De {t.minSheets} a {t.maxSheets} hojas</span>
+                    <span className="text-primary font-extrabold">S/. {t.price.toFixed(2)}</span>
+                    <button type="button" onClick={() => removeTier(idx)} className="text-destructive">
+                      <Trash2 className="size-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
         <button
           type="button"
           onClick={create}
           className="mt-4 flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-primary text-lg font-bold text-primary-foreground transition-opacity hover:opacity-90 shadow-sm"
         >
-          <Plus className="size-6" /> Guardar Producto
+          <Plus className="size-6" /> Guardar Producto / Servicio
         </button>
       </div>
     </Modal>
