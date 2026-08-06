@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { ChevronDown, Lock, UserPlus, Check, Delete, Trash2, ShieldCheck, Edit2 } from "lucide-react"
+import { ChevronDown, UserPlus, Check, Trash2, ShieldCheck, Edit2, Key, Eye, EyeOff } from "lucide-react"
 import { usePos, isAdmin } from "@/lib/pos-store"
 import type { Cashier } from "@/lib/pos-types"
 import { Modal } from "@/components/ui/modal"
@@ -11,28 +11,33 @@ export function UserSelector() {
   const admin = isAdmin(activeCashier)
   const [open, setOpen] = useState(false)
   const [pinFor, setPinFor] = useState<Cashier | null>(null)
-  const [pin, setPin] = useState("")
+  const [inputPass, setInputPass] = useState("")
+  const [showPass, setShowPass] = useState(false)
   const [error, setError] = useState(false)
+
+  // Estados para creación y edición
   const [creating, setCreating] = useState(false)
+  const [newName, setNewName] = useState("")
+  const [newPass, setNewPass] = useState("")
+
   const [editingCashier, setEditingCashier] = useState<Cashier | null>(null)
   const [editName, setEditName] = useState("")
-
-  const [newName, setNewName] = useState("")
-  const [newPin, setNewPin] = useState("")
+  const [editPass, setEditPass] = useState("")
 
   function pick(c: Cashier) {
     if (c.requiresPin) {
       setPinFor(c)
-      setPin("")
+      setInputPass("")
       setError(false)
+      setShowPass(false)
     } else {
       setActiveCashierId(c.id)
       setOpen(false)
     }
   }
 
-  function confirmPin() {
-    if (pinFor && pin === pinFor.pin) {
+  function confirmLogin() {
+    if (pinFor && inputPass === pinFor.pin) {
       setActiveCashierId(pinFor.id)
       setPinFor(null)
       setOpen(false)
@@ -41,28 +46,33 @@ export function UserSelector() {
     }
   }
 
-  function press(d: string) {
-    setError(false)
-    if (d === "del") setPin((p) => p.slice(0, -1))
-    else if (pin.length < 6) setPin((p) => p + d)
-  }
-
   function createCashier() {
     if (!newName.trim()) return
     addCashier({
       name: newName.trim(),
       emoji: "🧑",
-      requiresPin: newPin.trim().length > 0,
-      pin: newPin.trim() || undefined,
+      requiresPin: newPass.trim().length > 0,
+      pin: newPass.trim() || undefined,
     })
     setNewName("")
-    setNewPin("")
+    setNewPass("")
     setCreating(false)
   }
 
-  function saveEditedName() {
+  function openEditModal(c: Cashier) {
+    setEditingCashier(c)
+    setEditName(c.name)
+    setEditPass(c.pin || "")
+    setShowPass(false)
+  }
+
+  function saveEditedUser() {
     if (editingCashier && editName.trim()) {
-      updateCashier(editingCashier.id, { name: editName.trim() })
+      updateCashier(editingCashier.id, {
+        name: editName.trim(),
+        requiresPin: editPass.trim().length > 0,
+        pin: editPass.trim() || undefined,
+      })
       setEditingCashier(null)
     }
   }
@@ -94,6 +104,7 @@ export function UserSelector() {
         <ChevronDown className="ml-1 size-5 text-muted-foreground" />
       </button>
 
+      {/* Modal Principal de Usuarios */}
       <Modal
         open={open}
         onClose={() => {
@@ -108,6 +119,7 @@ export function UserSelector() {
             const active = c.id === activeCashier?.id
             const cashierIsAdmin = isAdmin(c)
             const canDelete = admin && c.id !== "admin"
+
             return (
               <div key={c.id} className="relative">
                 <button
@@ -132,23 +144,23 @@ export function UserSelector() {
                       ) : null}
                     </span>
                     <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                      {c.requiresPin ? "🔒 Con Clave" : "⚡ Acceso Directo"}
+                      {c.requiresPin ? "🔒 Con Contraseña" : "⚡ Acceso Directo"}
                     </span>
                   </span>
                   {active ? <Check className="size-6 shrink-0 text-primary" /> : null}
                 </button>
 
+                {/* Acciones de Administrador */}
                 {admin ? (
                   <div className="absolute right-2 top-2 flex items-center gap-1">
                     <button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation()
-                        setEditingCashier(c)
-                        setEditName(c.name)
+                        openEditModal(c)
                       }}
                       className="grid size-8 place-items-center rounded-lg text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-                      title="Editar nombre"
+                      title="Editar usuario o contraseña"
                     >
                       <Edit2 className="size-4" />
                     </button>
@@ -173,34 +185,34 @@ export function UserSelector() {
 
           {!admin ? (
             <p className="col-span-full rounded-2xl border border-dashed border-border bg-secondary/40 p-3 text-center text-sm text-muted-foreground">
-              Inicia sesión como Administrador para cambiar nombres o agregar usuarios.
+              Inicia sesión como Administrador para cambiar nombres, contraseñas o agregar usuarios.
             </p>
           ) : creating ? (
-            <div className="col-span-full rounded-2xl border-2 border-dashed border-border p-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="text-sm font-semibold">
-                  Nombre del usuario
-                  <input
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    onFocus={(e) => e.target.select()}
-                    placeholder="Ej. Jamela, Papá, Tía"
-                    className="mt-1 h-12 w-full rounded-xl border border-input bg-background px-3 text-base outline-none focus:border-primary"
-                  />
-                </label>
-                <label className="text-sm font-semibold">
-                  Clave / PIN (opcional)
-                  <input
-                    value={newPin}
-                    onChange={(e) => setNewPin(e.target.value.replace(/\D/g, ""))}
-                    onFocus={(e) => e.target.select()}
-                    inputMode="numeric"
-                    placeholder="Sin clave = acceso directo"
-                    className="mt-1 h-12 w-full rounded-xl border border-input bg-background px-3 text-base outline-none focus:border-primary"
-                  />
-                </label>
-              </div>
-              <div className="mt-3 flex gap-2">
+            <div className="col-span-full rounded-2xl border-2 border-dashed border-border p-4 space-y-3">
+              <label className="block text-sm font-bold">
+                Nombre del usuario
+                <input
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  onFocus={(e) => e.target.select()}
+                  placeholder="Ej. Jamela, Papá, Tía"
+                  className="mt-1 h-12 w-full rounded-xl border border-input bg-background px-3 text-base outline-none focus:border-primary"
+                />
+              </label>
+
+              <label className="block text-sm font-bold">
+                Contraseña segura (letras, números y símbolos)
+                <input
+                  type="text"
+                  value={newPass}
+                  onChange={(e) => setNewPass(e.target.value)}
+                  onFocus={(e) => e.target.select()}
+                  placeholder="Dejar vacío si no requiere contraseña"
+                  className="mt-1 h-12 w-full rounded-xl border border-input bg-background px-3 text-base outline-none focus:border-primary"
+                />
+              </label>
+
+              <div className="flex gap-2 pt-2">
                 <button
                   type="button"
                   onClick={createCashier}
@@ -229,27 +241,54 @@ export function UserSelector() {
         </div>
       </Modal>
 
+      {/* Modal para Editar Usuario y Ver/Cambiar Contraseña (Solo Admin) */}
       <Modal
         open={editingCashier !== null}
         onClose={() => setEditingCashier(null)}
-        title="Cambiar Nombre de Usuario"
+        title={`Editar Usuario: ${editingCashier?.name}`}
         size="md"
       >
         <div className="space-y-4">
           <label className="block text-sm font-bold">
-            Nuevo nombre para {editingCashier?.name}
+            Nombre del usuario
             <input
               value={editName}
               onChange={(e) => setEditName(e.target.value)}
               onFocus={(e) => e.target.select()}
-              className="mt-2 h-14 w-full rounded-xl border border-input bg-background px-4 text-lg font-semibold outline-none focus:border-primary"
+              className="mt-1 h-12 w-full rounded-xl border border-input bg-background px-4 text-base font-semibold outline-none focus:border-primary"
             />
           </label>
-          <div className="flex gap-2">
+
+          <label className="block text-sm font-bold">
+            Contraseña / Clave
+            <div className="relative mt-1">
+              <input
+                type={showPass ? "text" : "password"}
+                value={editPass}
+                onChange={(e) => setEditPass(e.target.value)}
+                onFocus={(e) => e.target.select()}
+                placeholder="Sin contraseña"
+                className="h-12 w-full rounded-xl border border-input bg-background pl-4 pr-12 text-base font-semibold outline-none focus:border-primary"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPass(!showPass)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                title={showPass ? "Ocultar contraseña" : "Ver contraseña"}
+              >
+                {showPass ? <EyeOff className="size-5" /> : <Eye className="size-5" />}
+              </button>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Puedes usar letras, números y símbolos para mayor seguridad.
+            </p>
+          </label>
+
+          <div className="flex gap-2 pt-3">
             <button
               type="button"
-              onClick={saveEditedName}
-              className="h-14 flex-1 rounded-xl bg-primary text-lg font-bold text-primary-foreground"
+              onClick={saveEditedUser}
+              className="h-14 flex-1 rounded-xl bg-primary text-base font-bold text-primary-foreground"
             >
               Guardar Cambios
             </button>
@@ -264,57 +303,54 @@ export function UserSelector() {
         </div>
       </Modal>
 
+      {/* Modal de Ingreso con Contraseña */}
       <Modal
         open={pinFor !== null}
         onClose={() => setPinFor(null)}
-        title={`Clave de ${pinFor?.name ?? ""}`}
-        description="Ingresa el PIN para ingresar."
+        title={`Contraseña de ${pinFor?.name ?? ""}`}
+        description="Ingresa la contraseña para iniciar sesión."
         size="md"
       >
-        <div className="mx-auto max-w-xs">
-          <div
-            className={`mb-4 flex h-16 items-center justify-center gap-3 rounded-2xl border-2 text-3xl tracking-[0.4em] ${
-              error ? "border-destructive text-destructive" : "border-border"
-            }`}
-          >
-            {pin ? "•".repeat(pin.length) : <span className="text-muted-foreground">----</span>}
+        <div className="mx-auto max-w-xs space-y-4">
+          <div className="relative">
+            <input
+              type={showPass ? "text" : "password"}
+              value={inputPass}
+              onChange={(e) => {
+                setError(false)
+                setInputPass(e.target.value)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") confirmLogin()
+              }}
+              onFocus={(e) => e.target.select()}
+              placeholder="Escribe la contraseña..."
+              className={`h-14 w-full rounded-2xl border-2 bg-background pl-4 pr-12 text-lg font-bold outline-none ${
+                error ? "border-destructive" : "border-primary"
+              }`}
+            />
+            <button
+              type="button"
+              onClick={() => setShowPass(!showPass)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              {showPass ? <EyeOff className="size-5" /> : <Eye className="size-5" />}
+            </button>
           </div>
+
           {error ? (
-            <p className="mb-3 text-center text-sm font-semibold text-destructive">Clave incorrecta.</p>
+            <p className="text-center text-sm font-semibold text-destructive">
+              Contraseña incorrecta.
+            </p>
           ) : null}
-          <div className="grid grid-cols-3 gap-2">
-            {["1", "2", "3", "4", "5", "6", "7", "8", "9"].map((d) => (
-              <button
-                key={d}
-                type="button"
-                onClick={() => press(d)}
-                className="h-16 rounded-2xl border border-border bg-card text-2xl font-bold hover:bg-secondary"
-              >
-                {d}
-              </button>
-            ))}
-            <button
-              type="button"
-              onClick={() => press("del")}
-              className="grid h-16 place-items-center rounded-2xl border border-border bg-card hover:bg-secondary"
-            >
-              <Delete className="size-6" />
-            </button>
-            <button
-              type="button"
-              onClick={() => press("0")}
-              className="h-16 rounded-2xl border border-border bg-card text-2xl font-bold hover:bg-secondary"
-            >
-              0
-            </button>
-            <button
-              type="button"
-              onClick={confirmPin}
-              className="grid h-16 place-items-center rounded-2xl bg-primary text-primary-foreground hover:opacity-90"
-            >
-              <Check className="size-7" />
-            </button>
-          </div>
+
+          <button
+            type="button"
+            onClick={confirmLogin}
+            className="flex h-14 w-full items-center justify-center gap-2 rounded-2xl bg-primary text-lg font-bold text-primary-foreground shadow-sm transition-opacity hover:opacity-90"
+          >
+            <Key className="size-5" /> Ingresar
+          </button>
         </div>
       </Modal>
     </>
