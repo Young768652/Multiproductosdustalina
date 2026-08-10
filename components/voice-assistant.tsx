@@ -7,7 +7,7 @@ import { useCart } from "@/lib/cart-store"
 
 export function VoiceAssistant() {
   const { services } = usePos()
-  const { addItem, total, items } = useCart()
+  const { addItem, removeItem, clear, total, items } = useCart()
   const [isListening, setIsListening] = useState(false)
   const [speechEnabled, setSpeechEnabled] = useState(true)
   const [lastTranscript, setLastTranscript] = useState("")
@@ -73,50 +73,47 @@ export function VoiceAssistant() {
         recognitionRef.current = recognition
       }
     }
-  }, [services])
+  }, [services, items])
 
-  // Extrae la cantidad numérica real (evitando confundirse con céntimos)
-  function extractQuantityAndCleanText(rawText: string) {
-    let text = normalizeText(rawText)
+  // Detección limpia de cantidad sin confusiones
+  function extractQuantity(text: string): { quantity: number; isExplicit: boolean } {
+    const norm = normalizeText(text)
 
-    // 1. Eliminar menciones de dinero/precios para evitar confundir céntimos con cantidad
-    text = text.replace(/de\s+\d+\s*(centimos|centimo|céntimos|céntimo|soles|sol)/g, "")
-    text = text.replace(/(\d+)\s*(centimos|centimo|céntimos|céntimo)/g, "")
+    // Si tiene mención explícita de números
+    const match = norm.match(/\b(\d+)\b/)
+    if (match) return { quantity: parseInt(match[1], 10), isExplicit: true }
 
-    // 2. Detectar cantidad numérica explícita al inicio o antes de la palabra
-    let quantity = 1
+    if (/\b(dos|2)\b/.test(norm)) return { quantity: 2, isExplicit: true }
+    if (/\b(tres|3)\b/.test(norm)) return { quantity: 3, isExplicit: true }
+    if (/\b(cuatro|4)\b/.test(norm)) return { quantity: 4, isExplicit: true }
+    if (/\b(cinco|5)\b/.test(norm)) return { quantity: 5, isExplicit: true }
+    if (/\b(diez|10)\b/.test(norm)) return { quantity: 10, isExplicit: true }
 
-    const numMatch = text.match(/\b(\d+)\b/)
-    if (numMatch) {
-      quantity = parseInt(numMatch[1], 10)
-      text = text.replace(numMatch[0], "")
-    } else if (/\bdos\b/.test(text)) {
-      quantity = 2
-      text = text.replace(/\bdos\b/, "")
-    } else if (/\btres\b/.test(text)) {
-      quantity = 3
-      text = text.replace(/\btres\b/, "")
-    } else if (/\bcuatro\b/.test(text)) {
-      quantity = 4
-      text = text.replace(/\bcuatro\b/, "")
-    } else if (/\bcinco\b/.test(text)) {
-      quantity = 5
-      text = text.replace(/\bcinco\b/, "")
-    } else if (/\bdiez\b/.test(text)) {
-      quantity = 10
-      text = text.replace(/\bdiez\b/, "")
-    }
-
-    // Limpiar palabras comando comunes
-    text = text.replace(/\b(agrega|añade|pon|dame|lleva|por favor|un|una|de|del|los|las)\b/g, " ").trim()
-
-    return { quantity, cleanText: text }
+    // Por defecto es SIEMPRE 1
+    return { quantity: 1, isExplicit: false }
   }
 
   function processVoiceCommand(rawText: string) {
-    const { quantity, cleanText } = extractQuantityAndCleanText(rawText)
+    const textNorm = normalizeText(rawText)
 
-    // Buscar coincidencia exacta o mejor similitud en los productos
+    // 1. COMANDO DE VACIAR O LIMPIAR TODO EL CARRITO
+    if (/\b(vaciar|limpiar|borrar todo|eliminar todo)\b/.test(textNorm)) {
+      clear()
+      speak("Carrito vaciado por completo.")
+      return
+    }
+
+    // 2. COMANDO DE ELIMINAR / QUITAR UN PRODUCTO
+    const isDeleteCommand = /\b(elimina|eliminar|quita|quitar|borra|borrar)\b/.test(textNorm)
+
+    // Limpiar palabras comando del texto para buscar el producto
+    let cleanText = textNorm
+      .replace(/de\s+\d+\s*(centimos|centimo|céntimos|céntimo|soles|sol)/g, "")
+      .replace(/\b(agrega|añade|pon|dame|lleva|elimina|eliminar|quita|quitar|borra|borrar|por favor|un|una|de|del|los|las)\b/g, " ")
+      .replace(/\b(\d+|dos|tres|cuatro|cinco|diez)\b/g, " ")
+      .trim()
+
+    // Encontrar el producto más cercano en la tienda
     let bestMatch: any = null
     let maxScore = 0
 
@@ -124,11 +121,9 @@ export function VoiceAssistant() {
       const sName = normalizeText(s.name)
       let score = 0
 
-      // Si el texto limpio coincide exactamente con el producto
       if (sName === cleanText) score += 10
       else if (sName.includes(cleanText) || cleanText.includes(sName)) score += 5
 
-      // Evaluación por palabras clave
       const textWords = cleanText.split(" ").filter((w) => w.length > 2)
       textWords.forEach((word) => {
         if (sName.includes(word)) score += 2
@@ -141,17 +136,31 @@ export function VoiceAssistant() {
     })
 
     if (bestMatch && maxScore > 0) {
-      addItem({
-        serviceId: bestMatch.id,
-        name: bestMatch.name,
-        unitPrice: bestMatch.price,
-        quantity: quantity,
-        unit: bestMatch.unit,
-      })
+      if (isDeleteCommand) {
+        // Buscar si el producto está actualmente en el carrito para eliminarlo
+        const cartItemIndex = items.findIndex((it) => it.serviceId === bestMatch.id)
+        if (cartItemIndex > -1) {
+          removeItem(items[cartItemIndex].id)
+          speak(`Eliminado ${bestMatch.name} del carrito.`)
+        } else {
+          speak(`${bestMatch.name} no está en el carrito.`)
+        }
+      } else {
+        // AGREGAR PRODUCTO (Cantidad exacta)
+        const { quantity } = extractQuantity(rawText)
 
-      speak(`Agregado ${quantity > 1 ? quantity : ""} ${bestMatch.name}.`)
+        addItem({
+          serviceId: bestMatch.id,
+          name: bestMatch.name,
+          unitPrice: bestMatch.price,
+          quantity: quantity,
+          unit: bestMatch.unit,
+        })
+
+        speak(`Agregado ${quantity > 1 ? quantity : ""} ${bestMatch.name}.`)
+      }
     } else {
-      speak(`No reconocí ese producto en la lista.`)
+      speak(`No reconocí ese producto en la tienda.`)
     }
   }
 
@@ -185,7 +194,7 @@ export function VoiceAssistant() {
             ? "bg-destructive text-destructive-foreground animate-pulse"
             : "bg-primary/10 text-primary hover:bg-primary/20"
         }`}
-        title={isListening ? "Escuchando..." : "Hablar para agregar producto"}
+        title={isListening ? "Escuchando..." : "Hablar para agregar o quitar producto"}
       >
         {isListening ? <MicOff className="size-5" /> : <Mic className="size-5" />}
         <span className="hidden md:inline">
