@@ -9,6 +9,7 @@ import { UserSelector } from "@/components/user-selector"
 import { ServicesPanel } from "@/components/services-panel"
 import { CartPanel } from "@/components/cart-panel"
 import { CuentasPorCobrar } from "@/components/cuentas-por-cobrar"
+import { VoiceAssistant } from "@/components/voice-assistant"
 
 type Tab = "vender" | "cuentas" | "admin"
 
@@ -251,6 +252,7 @@ function Shell() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <VoiceAssistant />
             <ThemeToggle />
             <UserSelector />
           </div>
