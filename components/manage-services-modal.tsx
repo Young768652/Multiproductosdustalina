@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Plus, Trash2, Calculator, TrendingUp, Layers } from "lucide-react"
+import { Plus, Trash2, Calculator, TrendingUp, RefreshCw, Layers } from "lucide-react"
 import { usePos } from "@/lib/pos-store"
 import type { ServiceCategory, ServiceIconKey, TieredPrice } from "@/lib/pos-types"
 import { Modal } from "@/components/ui/modal"
@@ -14,7 +14,7 @@ export function ManageServicesModal({
   open: boolean
   onClose: () => void
 }) {
-  const { services, updateService, removeService, addService } = usePos()
+  const { services, updateService, removeService, addService, resetCatalog } = usePos()
   const [name, setName] = useState("")
   const [price, setPrice] = useState("")
   const [cost, setCost] = useState("")
@@ -23,13 +23,11 @@ export function ManageServicesModal({
   const [category, setCategory] = useState<ServiceCategory>("servicios")
   const [icon, setIcon] = useState<ServiceIconKey>("file")
 
-  // Calculadora Comercial (Tira / Paquete / Caja)
   const [showCalc, setShowCalc] = useState(false)
   const [packPrice, setPackPrice] = useState("")
   const [packUnits, setPackUnits] = useState("")
   const [targetPrice, setTargetPrice] = useState("")
 
-  // Configuración de Rangos por Hojas (Anillados, Enmicados)
   const [tieredPrices, setTieredPrices] = useState<TieredPrice[]>([])
   const [minHojas, setMinHojas] = useState("")
   const [maxHojas, setMaxHojas] = useState("")
@@ -37,7 +35,6 @@ export function ManageServicesModal({
 
   const isPhysicalProduct = category === "golosinas" || category === "libreria" || category === "aseo"
 
-  // Cálculos dinámicos en vivo para la tira/paquete
   const parsedPackCost = Number(packPrice.replace(",", ".")) || 0
   const parsedPackUnits = Number(packUnits) || 0
   const parsedTargetPrice = Number(targetPrice.replace(",", ".")) || 0
@@ -107,9 +104,21 @@ export function ManageServicesModal({
       open={open}
       onClose={onClose}
       title="Gestión de Precios, Costos e Inventario"
-      description="Calcula costos de tiras/paquetes o configura tarifas por rango de hojas."
+      description="Administra los precios de tu tienda o sincroniza la lista limpia en este dispositivo."
       size="lg"
     >
+      {/* Botón de Sincronización / Limpieza */}
+      <div className="mb-4 flex items-center justify-between rounded-2xl border border-primary/30 bg-accent/30 p-3">
+        <p className="text-xs font-bold text-foreground">¿Ves productos antiguos en tu celular?</p>
+        <button
+          type="button"
+          onClick={resetCatalog}
+          className="flex h-9 items-center gap-1.5 rounded-xl bg-primary px-3 text-xs font-extrabold text-primary-foreground shadow-sm hover:opacity-90"
+        >
+          <RefreshCw className="size-3.5" /> Sincronizar Catálogo
+        </button>
+      </div>
+
       <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
         {services.map((s) => {
           const hasStockControl = s.stock !== undefined
@@ -132,7 +141,6 @@ export function ManageServicesModal({
                 aria-label="Nombre del producto"
               />
 
-              {/* Precio Venta */}
               <div className="flex items-center gap-1 rounded-xl border border-input bg-background px-2" title="Precio de venta al público">
                 <span className="text-xs font-bold text-muted-foreground">Venta: S/.</span>
                 <input
@@ -150,7 +158,6 @@ export function ManageServicesModal({
                 />
               </div>
 
-              {/* Costo Compra */}
               <div className="flex items-center gap-1 rounded-xl border border-emerald-500/30 bg-emerald-500/5 px-2" title="Costo unitario de compra">
                 <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">Costo: S/.</span>
                 <input
@@ -185,7 +192,6 @@ export function ManageServicesModal({
                 </div>
               ) : null}
 
-              {/* Muestra ganancia unitaria */}
               <div className="hidden sm:block text-xs font-bold text-emerald-600 bg-emerald-500/10 px-2.5 py-1.5 rounded-lg">
                 +{profit > 0 ? `S/. ${profit.toFixed(2)}` : "S/. 0.00"}
               </div>
@@ -202,7 +208,6 @@ export function ManageServicesModal({
         })}
       </div>
 
-      {/* Formulario para Nuevo Producto / Servicio */}
       <div className="mt-5 rounded-3xl border-2 border-dashed border-border p-4 bg-secondary/20 space-y-3">
         <p className="text-base font-extrabold">Añadir Nuevo Producto / Servicio</p>
         <div className="grid gap-3 sm:grid-cols-3">
@@ -271,7 +276,6 @@ export function ManageServicesModal({
             </label>
           ) : null}
 
-          {/* CALCULADORA DE MARGEN DE GANANCIA POR TIRA / PAQUETE */}
           {showCalc ? (
             <div className="sm:col-span-3 rounded-2xl border-2 border-primary/40 bg-accent/30 p-4 space-y-3">
               <div className="flex items-center gap-2 text-sm font-bold text-primary">
@@ -319,7 +323,6 @@ export function ManageServicesModal({
                 </div>
               </div>
 
-              {/* Panel de resultados de Ganancias */}
               {calculatedUnitCost > 0 ? (
                 <div className="rounded-xl bg-background border border-border p-3 text-xs space-y-1">
                   <div className="flex justify-between">
@@ -378,7 +381,6 @@ export function ManageServicesModal({
           </label>
         </div>
 
-        {/* CREADOR DE RANGOS DE PRECIOS POR HOJAS (Solo para Anillados / Servicios) */}
         {!isPhysicalProduct ? (
           <div className="rounded-2xl border-2 border-primary/30 bg-accent/20 p-3 space-y-2">
             <p className="text-xs font-bold text-primary flex items-center gap-1.5">

@@ -1,262 +1,227 @@
 "use client"
 
-import React, { createContext, useCallback, useContext, useMemo } from "react"
-import { useLocalStorage } from "./use-local-storage"
-import type {
-  Cashier,
-  CartItem,
-  Client,
-  Credit,
-  CreditPayment,
-  Sale,
-  Service,
-} from "./pos-types"
+import React, { createContext, useContext, useEffect, useState, useCallback } from "react"
+import type { Cashier, Service, Sale, Credit, Client } from "./pos-types"
 
-const KEYS = {
-  cashiers: "pos.cashiers.v3",
-  services: "pos.services.v5",
-  clients: "pos.clients.v3",
-  sales: "pos.sales.v3",
-  credits: "pos.credits.v3",
-  activeCashier: "pos.activeCashier.v3",
-}
-
-const uid = () => {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID()
-  }
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
-}
-
-const DEFAULT_CASHIERS: Cashier[] = [
-  { id: "abuelita", name: "Abuelita", emoji: "👵", role: "cajero", requiresPin: false },
-  { id: "admin", name: "Administrador", emoji: "🧑‍💼", role: "admin", requiresPin: true, pin: "1234" },
+export const INITIAL_SERVICES: Service[] = [
+  { id: "1", name: "Copia Blanco y negro", price: 0.20, unit: "hoja", icon: "copy-bw", category: "copias", isFavorite: true },
+  { id: "2", name: "Copia Color", price: 0.30, unit: "hoja", icon: "copy-color", category: "copias", isFavorite: true },
+  { id: "3", name: "Copia Color Imagen", price: 0.50, unit: "hoja", icon: "image", category: "copias" },
+  { id: "4", name: "Anillado", price: 3.00, unit: "unidad", icon: "ring", category: "servicios", perSheetHint: true, isFavorite: true },
+  { id: "5", name: "Enmicado / Plastificado", price: 2.00, unit: "unidad", icon: "laminate", category: "servicios" },
+  { id: "6", name: "Guillotina / Corte", price: 0.50, unit: "corte", icon: "scissors", category: "servicios" },
+  { id: "7", name: "Impresión B/N", price: 0.30, unit: "hoja", icon: "printer", category: "copias" },
+  { id: "8", name: "Escanear / Digitalizar", price: 1.00, unit: "documento", icon: "scan", category: "servicios" },
+  { id: "9", name: "Chizitos / Golosinas", price: 1.00, cost: 0.70, stock: 20, minStock: 5, unit: "unidad", icon: "chips", category: "golosinas" },
 ]
 
-export function isAdmin(c: Cashier | null | undefined) {
-  return !!c && (c.role === "admin" || c.id === "admin")
-}
-
-// COPIAS Y SERVICIOS NO TIENEN STOCK (Servicios ilimitados)
-const DEFAULT_SERVICES: Service[] = [
-  { id: "copia-bn", name: "Copia B/N", price: 0.2, unit: "hoja", icon: "copy-bw", category: "copias", isFavorite: true },
-  { id: "copia-color-simple", name: "Copia Color Texto", price: 0.3, unit: "hoja", icon: "copy-color", category: "copias", isFavorite: true },
-  { id: "copia-color-full", name: "Copia Color Imagen", price: 0.5, unit: "hoja", icon: "image", category: "copias", isFavorite: false },
-  { id: "anillado", name: "Anillado", price: 3, unit: "unidad", icon: "ring", category: "servicios", perSheetHint: true, isFavorite: true },
-  { id: "enmicado", name: "Enmicado / Plastificado", price: 2, unit: "unidad", icon: "laminate", category: "servicios", isFavorite: false },
-  { id: "guillotina", name: "Guillotina / Cortado", price: 0.5, unit: "corte", icon: "scissors", category: "servicios", isFavorite: false },
-
-  // 🍬 Golosinas (Sí llevan control de Stock)
-  { id: "chizitos", name: "Chizitos", price: 1, unit: "unidad", icon: "chips", category: "golosinas", isFavorite: true, stock: 15, minStock: 3 },
-  { id: "papitas", name: "Papitas (Ondas)", price: 1.5, unit: "unidad", icon: "chips", category: "golosinas", isFavorite: true, stock: 12, minStock: 3 },
-  { id: "galletas", name: "Galletas", price: 1, unit: "unidad", icon: "cookie", category: "golosinas", isFavorite: false, stock: 20, minStock: 5 },
-  { id: "caramelos", name: "Caramelos", price: 0.2, unit: "unidad", icon: "candy", category: "golosinas", isFavorite: false, stock: 100, minStock: 20 },
-  { id: "chocolates", name: "Chocolates", price: 2, unit: "unidad", icon: "candy", category: "golosinas", isFavorite: false, stock: 10, minStock: 2 },
-  { id: "chupetines", name: "Chupetines", price: 0.5, unit: "unidad", icon: "lollipop", category: "golosinas", isFavorite: false, stock: 30, minStock: 5 },
-  { id: "gaseosa", name: "Gaseosa / Bebida", price: 2.5, unit: "unidad", icon: "soda", category: "golosinas", isFavorite: false, stock: 18, minStock: 4 },
-
-  // ✏️ Librería (Sí llevan control de Stock)
-  { id: "lapiz", name: "Lápiz", price: 0.5, unit: "unidad", icon: "pencil", category: "libreria", isFavorite: false, stock: 50, minStock: 10 },
-  { id: "lapicero-azul", name: "Lapicero Azul", price: 0.5, unit: "unidad", icon: "pen", category: "libreria", isFavorite: true, stock: 40, minStock: 10 },
-  { id: "lapicero-negro", name: "Lapicero Negro", price: 0.5, unit: "unidad", icon: "pen", category: "libreria", isFavorite: false, stock: 30, minStock: 5 },
-  { id: "lapicero-rojo", name: "Lapicero Rojo", price: 0.5, unit: "unidad", icon: "pen", category: "libreria", isFavorite: false, stock: 20, minStock: 5 },
-  { id: "borrador", name: "Borrador", price: 0.5, unit: "unidad", icon: "eraser", category: "libreria", isFavorite: false, stock: 25, minStock: 5 },
-  { id: "tajador", name: "Tajador", price: 0.5, unit: "unidad", icon: "pencil", category: "libreria", isFavorite: false, stock: 15, minStock: 3 },
-  { id: "cuaderno", name: "Cuaderno", price: 3, unit: "unidad", icon: "notebook", category: "libreria", isFavorite: true, stock: 25, minStock: 5 },
-  { id: "hojas-paquete", name: "Hojas Bond (paquete)", price: 12, unit: "paquete", icon: "paper", category: "libreria", isFavorite: false, stock: 8, minStock: 2 },
-  { id: "folder", name: "Folder", price: 0.5, unit: "unidad", icon: "folder", category: "libreria", isFavorite: false, stock: 30, minStock: 5 },
-  { id: "sobre-manila", name: "Sobre Manila", price: 0.5, unit: "unidad", icon: "envelope", category: "libreria", isFavorite: false, stock: 40, minStock: 10 },
-
-  // 🪥 Aseo (Sí llevan control de Stock)
-  { id: "cepillo-dientes", name: "Cepillo de Dientes", price: 3, unit: "unidad", icon: "toothbrush", category: "aseo", isFavorite: false, stock: 10, minStock: 2 },
-  { id: "pasta-dental", name: "Pasta Dental", price: 4, unit: "unidad", icon: "toothpaste", category: "aseo", isFavorite: false, stock: 8, minStock: 2 },
+export const CASHIERS: Cashier[] = [
+  { id: "admin", name: "Administrador", emoji: "💼", role: "admin", requiresPin: true, pin: "1234" },
+  { id: "cajero1", name: "Jamela", emoji: "👧", role: "cajero" },
 ]
 
-const DEFAULT_CLIENTS: Client[] = [
-  { id: "don-carlos", name: "Don Carlos", emoji: "👨‍🦳", creditLimit: 50 },
-  { id: "vecina-maria", name: "Vecina María", emoji: "👩", creditLimit: 30 },
+export const INITIAL_CLIENTS: Client[] = [
+  { id: "cli-1", name: "Familia Castro", emoji: "🏠", creditLimit: 100 },
+  { id: "cli-2", name: "Profesor Juan", emoji: "👨‍🏫", creditLimit: 50 },
 ]
 
-type PosContextValue = {
-  hydrated: boolean
-  cashiers: Cashier[]
+interface PosContextType {
   services: Service[]
-  clients: Client[]
+  cashiers: Cashier[]
   sales: Sale[]
   credits: Credit[]
+  clients: Client[]
   activeCashier: Cashier | null
-  setActiveCashierId: (id: string | null) => void
-  addCashier: (c: Omit<Cashier, "id">) => void
-  updateCashier: (id: string, patch: Partial<Cashier>) => void
-  removeCashier: (id: string) => void
-  addService: (s: Omit<Service, "id">) => void
+  hydrated: boolean
+  setActiveCashierId: (id: string) => void
+  addService: (service: Omit<Service, "id">) => void
   updateService: (id: string, patch: Partial<Service>) => void
   removeService: (id: string) => void
-  addClient: (name: string, emoji?: string, creditLimit?: number) => Client
-  recordSale: (sale: Omit<Sale, "id" | "createdAt" | "cashierId" | "cashierName">) => void
-  addCredit: (input: { clientName: string; clientId?: string; items: CartItem[]; total: number }) => void
+  toggleFavorite: (id: string) => void
+  resetCatalog: () => void
+  addCashier: (cashier: Omit<Cashier, "id">) => void
+  updateCashier: (id: string, patch: Partial<Cashier>) => void
+  removeCashier: (id: string) => void
+  addSale: (sale: Omit<Sale, "id" | "createdAt">) => void
+  addCredit: (credit: Omit<Credit, "id" | "createdAt" | "updatedAt" | "payments">) => void
   addCreditPayment: (creditId: string, amount: number) => void
+  addClient: (client: Omit<Client, "id">) => void
   downloadBackup: () => void
 }
 
-const PosContext = createContext<PosContextValue | null>(null)
+const PosContext = createContext<PosContextType | null>(null)
+
+const STORAGE_KEYS = {
+  SERVICES: "dustalina_pos_services_v2",
+  CASHIERS: "dustalina_pos_cashiers_v2",
+  SALES: "dustalina_pos_sales_v2",
+  CREDITS: "dustalina_pos_credits_v2",
+  CLIENTS: "dustalina_pos_clients_v2",
+  ACTIVE_CASHIER: "dustalina_pos_active_cashier_v2",
+}
 
 export function PosProvider({ children }: { children: React.ReactNode }) {
-  const [cashiers, setCashiers, hCashiers] = useLocalStorage<Cashier[]>(KEYS.cashiers, DEFAULT_CASHIERS)
-  const [services, setServices, hServices] = useLocalStorage<Service[]>(KEYS.services, DEFAULT_SERVICES)
-  const [clients, setClients, hClients] = useLocalStorage<Client[]>(KEYS.clients, DEFAULT_CLIENTS)
-  const [sales, setSales, hSales] = useLocalStorage<Sale[]>(KEYS.sales, [])
-  const [credits, setCredits, hCredits] = useLocalStorage<Credit[]>(KEYS.credits, [])
-  const [activeCashierId, setActiveCashierIdRaw, hActive] = useLocalStorage<string | null>(KEYS.activeCashier, "abuelita")
+  const [hydrated, setHydrated] = useState(false)
+  const [services, setServices] = useState<Service[]>(INITIAL_SERVICES)
+  const [cashiers, setCashiers] = useState<Cashier[]>(CASHIERS)
+  const [sales, setSales] = useState<Sale[]>([])
+  const [credits, setCredits] = useState<Credit[]>([])
+  const [clients, setClients] = useState<Client[]>(INITIAL_CLIENTS)
+  const [activeCashierId, setActiveCashierIdState] = useState<string>("admin")
 
-  const hydrated = hCashiers && hServices && hClients && hSales && hCredits && hActive
+  useEffect(() => {
+    try {
+      const savedServices = localStorage.getItem(STORAGE_KEYS.SERVICES)
+      const savedCashiers = localStorage.getItem(STORAGE_KEYS.CASHIERS)
+      const savedSales = localStorage.getItem(STORAGE_KEYS.SALES)
+      const savedCredits = localStorage.getItem(STORAGE_KEYS.CREDITS)
+      const savedClients = localStorage.getItem(STORAGE_KEYS.CLIENTS)
+      const savedActive = localStorage.getItem(STORAGE_KEYS.ACTIVE_CASHIER)
 
-  const activeCashier = useMemo(
-    () => cashiers.find((c) => c.id === activeCashierId) ?? cashiers[0] ?? null,
-    [cashiers, activeCashierId],
-  )
+      if (savedServices) setServices(JSON.parse(savedServices))
+      if (savedCashiers) setCashiers(JSON.parse(savedCashiers))
+      if (savedSales) setSales(JSON.parse(savedSales))
+      if (savedCredits) setCredits(JSON.parse(savedCredits))
+      if (savedClients) setClients(JSON.parse(savedClients))
+      if (savedActive) setActiveCashierIdState(savedActive)
+    } catch (e) {
+      console.error("Error al cargar datos de localStorage", e)
+    } finally {
+      setHydrated(true)
+    }
+  }, [])
 
-  const setActiveCashierId = useCallback((id: string | null) => setActiveCashierIdRaw(id), [setActiveCashierIdRaw])
+  useEffect(() => {
+    if (!hydrated) return
+    localStorage.setItem(STORAGE_KEYS.SERVICES, JSON.stringify(services))
+    localStorage.setItem(STORAGE_KEYS.CASHIERS, JSON.stringify(cashiers))
+    localStorage.setItem(STORAGE_KEYS.SALES, JSON.stringify(sales))
+    localStorage.setItem(STORAGE_KEYS.CREDITS, JSON.stringify(credits))
+    localStorage.setItem(STORAGE_KEYS.CLIENTS, JSON.stringify(clients))
+    localStorage.setItem(STORAGE_KEYS.ACTIVE_CASHIER, activeCashierId)
+  }, [services, cashiers, sales, credits, clients, activeCashierId, hydrated])
 
-  const addCashier = useCallback((c: Omit<Cashier, "id">) => {
-    setCashiers((prev) => {
-      const cleanName = c.name.trim()
-      if (!cleanName || prev.some((x) => x.name.trim().toLowerCase() === cleanName.toLowerCase())) {
-        return prev
-      }
-      return [...prev, { ...c, name: cleanName, id: uid() }]
-    })
-  }, [setCashiers])
+  const activeCashier = cashiers.find((c) => c.id === activeCashierId) || cashiers[0]
 
-  const updateCashier = useCallback((id: string, patch: Partial<Cashier>) => {
-    setCashiers((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)))
-  }, [setCashiers])
-
-  const removeCashier = useCallback((id: string) => {
-    if (id === "admin") return
-    setCashiers((prev) => prev.filter((c) => c.id !== id))
-    setActiveCashierIdRaw((cur) => (cur === id ? "abuelita" : cur))
-  }, [setCashiers, setActiveCashierIdRaw])
+  const setActiveCashierId = useCallback((id: string) => {
+    setActiveCashierIdState(id)
+  }, [])
 
   const addService = useCallback((s: Omit<Service, "id">) => {
-    setServices((prev) => [...prev, { ...s, id: uid() }])
-  }, [setServices])
+    const newService: Service = { ...s, id: Date.now().toString() }
+    setServices((prev) => [...prev, newService])
+  }, [])
 
   const updateService = useCallback((id: string, patch: Partial<Service>) => {
     setServices((prev) => prev.map((s) => (s.id === id ? { ...s, ...patch } : s)))
-  }, [setServices])
+  }, [])
 
   const removeService = useCallback((id: string) => {
     setServices((prev) => prev.filter((s) => s.id !== id))
-  }, [setServices])
+  }, [])
 
-  const addClient = useCallback((name: string, emoji = "🙂", creditLimit = 50) => {
-    const client: Client = { id: uid(), name: name.trim(), emoji, creditLimit }
-    setClients((prev) => [...prev, client])
-    return client
-  }, [setClients])
+  const toggleFavorite = useCallback((id: string) => {
+    setServices((prev) => prev.map((s) => (s.id === id ? { ...s, isFavorite: !s.isFavorite } : s)))
+  }, [])
 
-  const recordSale = useCallback((sale: Omit<Sale, "id" | "createdAt" | "cashierId" | "cashierName">) => {
-    const now = new Date().toISOString()
-    setSales((prev) => [
-      {
-        ...sale,
-        id: uid(),
-        createdAt: now,
-        cashierId: activeCashier?.id ?? "desconocido",
-        cashierName: activeCashier?.name ?? "Desconocido",
-      },
-      ...prev,
-    ])
-
-    // Solo descuenta stock si el item TIENE definido el stock
-    setServices((prevServices) =>
-      prevServices.map((srv) => {
-        const itemInSale = sale.items.find((it) => it.serviceId === srv.id)
-        if (itemInSale && srv.stock !== undefined) {
-          return { ...srv, stock: Math.max(0, srv.stock - itemInSale.quantity) }
-        }
-        return srv
-      })
-    )
-  }, [setSales, setServices, activeCashier])
-
-  const addCredit = useCallback((input: { clientName: string; clientId?: string; items: CartItem[]; total: number }) => {
-    const now = new Date().toISOString()
-    const credit: Credit = {
-      id: uid(),
-      clientName: input.clientName.trim(),
-      clientId: input.clientId,
-      items: input.items,
-      originalAmount: input.total,
-      payments: [],
-      createdAt: now,
-      updatedAt: now,
-      cashierId: activeCashier?.id ?? "desconocido",
-      cashierName: activeCashier?.name ?? "Desconocido",
+  const resetCatalog = useCallback(() => {
+    if (confirm("¿Deseas restaurar la lista oficial de productos limpiando elementos antiguos?")) {
+      setServices(INITIAL_SERVICES)
+      localStorage.removeItem(STORAGE_KEYS.SERVICES)
     }
-    setCredits((prev) => [credit, ...prev])
-    recordSale({ items: input.items, total: input.total, paymentType: "fiado" })
-  }, [setCredits, activeCashier, recordSale])
+  }, [])
+
+  const addCashier = useCallback((c: Omit<Cashier, "id">) => {
+    const newCashier: Cashier = { ...c, id: Date.now().toString() }
+    setCashiers((prev) => [...prev, newCashier])
+  }, [])
+
+  const updateCashier = useCallback((id: string, patch: Partial<Cashier>) => {
+    setCashiers((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)))
+  }, [])
+
+  const removeCashier = useCallback((id: string) => {
+    setCashiers((prev) => prev.filter((c) => c.id !== id))
+  }, [])
+
+  const addSale = useCallback((s: Omit<Sale, "id" | "createdAt">) => {
+    const newSale: Sale = {
+      ...s,
+      id: Date.now().toString(),
+      createdAt: new Date().toISOString(),
+    }
+    setSales((prev) => [newSale, ...prev])
+  }, [])
+
+  const addCredit = useCallback((c: Omit<Credit, "id" | "createdAt" | "updatedAt" | "payments">) => {
+    const newCredit: Credit = {
+      ...c,
+      id: Date.now().toString(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      payments: [],
+    }
+    setCredits((prev) => [newCredit, ...prev])
+  }, [])
 
   const addCreditPayment = useCallback((creditId: string, amount: number) => {
-    const payment: CreditPayment = {
-      id: uid(),
-      amount,
-      date: new Date().toISOString(),
-      cashierId: activeCashier?.id ?? "desconocido",
-      cashierName: activeCashier?.name ?? "Desconocido",
-    }
     setCredits((prev) =>
-      prev.map((c) =>
-        c.id === creditId ? { ...c, payments: [...c.payments, payment], updatedAt: payment.date } : c
-      )
+      prev.map((c) => {
+        if (c.id !== creditId) return c
+        const newPayment = {
+          id: Date.now().toString(),
+          amount,
+          date: new Date().toISOString(),
+          cashierId: activeCashier.id,
+          cashierName: activeCashier.name,
+        }
+        return {
+          ...c,
+          updatedAt: new Date().toISOString(),
+          payments: [...c.payments, newPayment],
+        }
+      })
     )
-  }, [setCredits, activeCashier])
+  }, [activeCashier])
+
+  const addClient = useCallback((cl: Omit<Client, "id">) => {
+    const newClient: Client = { ...cl, id: Date.now().toString() }
+    setClients((prev) => [...prev, newClient])
+  }, [])
 
   const downloadBackup = useCallback(() => {
-    if (sales.length === 0) {
-      alert("Aún no hay ventas registradas hoy para exportar.")
-      return
-    }
-
-    let csvContent = "\uFEFF"
-    csvContent += "FECHA Y HORA;ATENDIDO POR;METODO DE PAGO;TOTAL (S/.)\n"
-
-    sales.forEach((s) => {
-      const fecha = new Date(s.createdAt).toLocaleString()
-      csvContent += `"${fecha}";"${s.cashierName}";"${s.paymentType.toUpperCase()}";"${s.total.toFixed(2)}"\n`
-    })
-
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `Ventas_CajaFamiliar_${new Date().toISOString().slice(0, 10)}.csv`
-    a.click()
-  }, [sales])
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify({ services, sales, credits, clients }, null, 2))
+    const downloadAnchor = document.createElement("a")
+    downloadAnchor.setAttribute("href", dataStr)
+    downloadAnchor.setAttribute("download", `respaldo_tienda_dustalina_${new Date().toISOString().slice(0, 10)}.json`)
+    document.body.appendChild(downloadAnchor)
+    downloadAnchor.click()
+    downloadAnchor.remove()
+  }, [services, sales, credits, clients])
 
   return (
     <PosContext.Provider
       value={{
-        hydrated,
-        cashiers,
         services,
-        clients,
+        cashiers,
         sales,
         credits,
+        clients,
         activeCashier,
+        hydrated,
         setActiveCashierId,
-        addCashier,
-        updateCashier,
-        removeCashier,
         addService,
         updateService,
         removeService,
-        addClient,
-        recordSale,
+        toggleFavorite,
+        resetCatalog,
+        addCashier,
+        updateCashier,
+        removeCashier,
+        addSale,
         addCredit,
         addCreditPayment,
+        addClient,
         downloadBackup,
       }}
     >
@@ -266,17 +231,21 @@ export function PosProvider({ children }: { children: React.ReactNode }) {
 }
 
 export function usePos() {
-  const ctx = useContext(PosContext)
-  if (!ctx) throw new Error("usePos debe usarse dentro de <PosProvider>")
-  return ctx
+  const context = useContext(PosContext)
+  if (!context) throw new Error("usePos debe usarse dentro de <PosProvider>")
+  return context
 }
 
-export function creditPaid(c: Credit) {
-  return c.payments.reduce((sum, p) => sum + p.amount, 0)
+export function isAdmin(cashier: Cashier | null): boolean {
+  return cashier?.role === "admin"
 }
-export function creditBalance(c: Credit) {
-  return Math.max(0, c.originalAmount - creditPaid(c))
+
+export function isCreditSettled(credit: Credit): boolean {
+  const paid = credit.payments.reduce((sum, p) => sum + p.amount, 0)
+  return paid >= credit.originalAmount
 }
-export function isCreditSettled(c: Credit) {
-  return creditBalance(c) <= 0.0001
+
+export function creditBalance(credit: Credit): number {
+  const paid = credit.payments.reduce((sum, p) => sum + p.amount, 0)
+  return Math.max(0, credit.originalAmount - paid)
 }
