@@ -24,7 +24,24 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([])
 
   const addItem = useCallback((item: Omit<CartItem, "id">) => {
-    setItems((prev) => [...prev, { ...item, id: uid() }])
+    setItems((prev) => {
+      // Buscamos si el producto con el mismo id de servicio y precio ya existe en el carrito
+      const existingIndex = prev.findIndex(
+        (it) => it.serviceId === item.serviceId && it.unitPrice === item.unitPrice && it.name === item.name
+      )
+
+      if (existingIndex > -1) {
+        // Si ya existe, le sumamos la cantidad (ej. si era 1 y agregamos 19, queda en 20)
+        return prev.map((it, idx) =>
+          idx === existingIndex
+            ? { ...it, quantity: it.quantity + item.quantity }
+            : it
+        )
+      }
+
+      // Si no existe, creamos el nuevo ítem con id único
+      return [...prev, { ...item, id: uid() }]
+    })
   }, [])
 
   const setQuantity = useCallback((id: string, quantity: number) => {
