@@ -5,7 +5,7 @@ import { Mic, MicOff, Volume2, VolumeX } from "lucide-react"
 import { usePos } from "@/lib/pos-store"
 import { useCart } from "@/lib/cart-store"
 
-export function VoiceAssistant() {
+    export function VoiceAssistant() {
     const { services } = usePos()
     const { addItem, total, items } = useCart()
     const [isListening, setIsListening] = useState(false)
@@ -14,36 +14,44 @@ export function VoiceAssistant() {
 
     const recognitionRef = useRef<any>(null)
 
-    // Función para hacer hablar al sistema
+    // Función para normalizar texto (quitar tildes y convertir a minúsculas)
+    function normalizeText(text: string) {
+        return text
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "") // Quita tildes
+        .trim()
+    }
+
+    // Hacer hablar al navegador
     function speak(text: string) {
         if (!speechEnabled || typeof window === "undefined" || !("speechSynthesis" in window)) return
 
-        window.speechSynthesis.cancel() // Detener speech anterior si hay
+        window.speechSynthesis.cancel()
         const utterance = new SpeechSynthesisUtterance(text)
-        utterance.lang = "es-PE" // Español de Perú / Latino
-        utterance.rate = 1.0 // Velocidad normal
+        utterance.lang = "es-PE"
+        utterance.rate = 1.0
         utterance.pitch = 1.0
         window.speechSynthesis.speak(utterance)
     }
 
-    // Anunciar el total hablado cuando cambia el total del carrito
+    // Anunciar el total
     const prevTotalRef = useRef(total)
     useEffect(() => {
         if (total > 0 && total !== prevTotalRef.current && items.length > 0) {
         const solesInt = Math.floor(total)
         const centimos = Math.round((total - solesInt) * 100)
-        
+
         let textoTotal = `El total es ${solesInt} ${solesInt === 1 ? "sol" : "soles"}`
         if (centimos > 0) {
             textoTotal += ` con ${centimos} céntimos`
         }
-        
+
         speak(textoTotal)
         }
         prevTotalRef.current = total
     }, [total, items])
 
-    // Configuración del Reconocimiento de Voz
     useEffect(() => {
         if (typeof window !== "undefined") {
         const SpeechRecognition =
@@ -56,7 +64,7 @@ export function VoiceAssistant() {
             recognition.lang = "es-PE"
 
             recognition.onresult = (event: any) => {
-            const transcript = event.results[0][0].transcript.toLowerCase().trim()
+            const transcript = event.results[0][0].transcript
             setLastTranscript(transcript)
             processVoiceCommand(transcript)
             setIsListening(false)
@@ -75,92 +83,108 @@ export function VoiceAssistant() {
         }
     }, [services])
 
-    // Procesador inteligente de lo que el usuario habla
-    function processVoiceCommand(text: string) {
-        // Normalizar texto
-        const cleanedText = text
-        .replace(/agrega|añade|pon|dame|lleva|un|una|dos|tres|cuatro|cinco|de|por/g, " ")
-        .trim()
+    // Convertir palabras numéricas a números
+    function parseQuantity(text: string): number {
+        if (text.includes("dos") || text.includes(" 2 ")) return 2
+        if (text.includes("tres") || text.includes(" 3 ")) return 3
+        if (text.includes("cuatro") || text.includes(" 4 ")) return 4
+        if (text.includes("cinco") || text.includes(" 5 ")) return 5
+        if (text.includes("diez") || text.includes(" 10 ")) return 10
+        return 1
+    }
 
-        // Buscar coincidencia en los productos
-        const matchedService = services.find((s) => {
-        const name = s.name.toLowerCase()
-        return text.includes(name) || cleanedText.includes(name)
+    // Buscador Inteligente
+    function processVoiceCommand(rawText: string) {
+    const text = normalizeText(rawText)
+    const qty = parseQuantity(text)
+
+    // Búsqueda en los productos guardados
+    let foundService = services.find((s) => {
+        const serviceName = normalizeText(s.name)
+      // Coincidencia exacta o contenida
+        return text.includes(serviceName) || serviceName.includes(text.replace(/agrega|añade|pon|dame|lleva|un|una|dos|tres|cuatro|cinco|de|por|sol|soles/g, "").trim())
+    })
+
+    // Búsqueda flexible por palabras clave individuales si no hubo coincidencia directa
+    if (!foundService) {
+        const words = text.split(" ").filter((w) => w.length > 2)
+        foundService = services.find((s) => {
+        const sName = normalizeText(s.name)
+        return words.some((w) => sName.includes(w))
         })
+    }
 
-        if (matchedService) {
+    if (foundService) {
         addItem({
-            serviceId: matchedService.id,
-            name: matchedService.name,
-            unitPrice: matchedService.price,
-            quantity: 1,
-            unit: matchedService.unit,
+        serviceId: foundService.id,
+        name: foundService.name,
+        unitPrice: foundService.price,
+        quantity: qty,
+        unit: foundService.unit,
         })
 
-        speak(`Agregado ${matchedService.name}.`)
-        } else {
-        speak("No encontré ese producto en la lista. Por favor intenta de nuevo.")
-        }
+        speak(`Agregado ${qty > 1 ? qty : ""} ${foundService.name}.`)
+    } else {
+        speak(`No encontré el producto "${rawText}". Por favor intenta de nuevo.`)
+    }
     }
 
     function toggleListening() {
-        if (!recognitionRef.current) {
-        alert("Tu navegador no soporta reconocimiento de voz. Te recomendamos usar Google Chrome.")
+    if (!recognitionRef.current) {
+        alert("Tu navegador no soporta voz. Te recomendamos usar Google Chrome.")
         return
-        }
+    }
 
-        if (isListening) {
+    if (isListening) {
         recognitionRef.current.stop()
         setIsListening(false)
-        } else {
+    } else {
         try {
-            recognitionRef.current.start()
-            setIsListening(true)
-            speak("Te escucho")
+        recognitionRef.current.start()
+        setIsListening(true)
+        speak("Te escucho")
         } catch (e) {
-            setIsListening(false)
+        setIsListening(false)
         }
-        }
+    }
     }
 
     return (
-        <div className="flex items-center gap-2">
-        {/* Botón de Escuchar por Micrófono */}
+    <div className="flex items-center gap-2">
         <button
-            type="button"
-            onClick={toggleListening}
-            className={`flex h-12 items-center gap-2 rounded-2xl px-3.5 text-sm font-bold transition-all shadow-sm ${
+        type="button"
+        onClick={toggleListening}
+        className={`flex h-12 items-center gap-2 rounded-2xl px-3.5 text-sm font-bold transition-all shadow-sm ${
             isListening
-                ? "bg-destructive text-destructive-foreground animate-pulse"
-                : "bg-primary/10 text-primary hover:bg-primary/20"
-            }`}
-            title={isListening ? "Escuchando..." : "Hablar para agregar producto"}
+            ? "bg-destructive text-destructive-foreground animate-pulse"
+            : "bg-primary/10 text-primary hover:bg-primary/20"
+        }`}
+        title={isListening ? "Escuchando..." : "Hablar para agregar producto"}
         >
-            {isListening ? <MicOff className="size-5" /> : <Mic className="size-5" />}
-            <span className="hidden md:inline">
+        {isListening ? <MicOff className="size-5" /> : <Mic className="size-5" />}
+        <span className="hidden md:inline">
             {isListening ? "Escuchando..." : "Asistente de Voz"}
-            </span>
+        </span>
         </button>
 
-        {/* Botón Activar / Desactivar Voz parlante */}
         <button
-            type="button"
-            onClick={() => {
+        type="button"
+        onClick={() => {
             const next = !speechEnabled
             setSpeechEnabled(next)
             if (!next) window.speechSynthesis?.cancel()
-            }}
-            className="grid size-12 place-items-center rounded-2xl border border-border bg-card text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-            title={speechEnabled ? "Desactivar voz hablada" : "Activar voz hablada"}
+        }}
+        className="grid size-12 place-items-center rounded-2xl border border-border bg-card text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+        title={speechEnabled ? "Desactivar voz hablada" : "Activar voz hablada"}
         >
-            {speechEnabled ? <Volume2 className="size-5 text-primary" /> : <VolumeX className="size-5" />}
+        {speechEnabled ? <Volume2 className="size-5 text-primary" /> : <VolumeX className="size-5" />}
         </button>
 
         {lastTranscript && isListening ? (
-            <span className="hidden lg:inline text-xs font-semibold text-muted-foreground animate-fade-in">
+        <span className="hidden lg:inline text-xs font-semibold text-muted-foreground animate-fade-in">
             "{lastTranscript}"
-            </span>
+        </span>
         ) : null}
-        </div>
+    </div>
     )
 }
