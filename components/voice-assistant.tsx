@@ -75,45 +75,56 @@ export function VoiceAssistant() {
     }
   }, [services, items])
 
-  // Detección limpia de cantidad sin confusiones
-  function extractQuantity(text: string): { quantity: number; isExplicit: boolean } {
-    const norm = normalizeText(text)
+  // Detección Ultra-Precisa de Números
+  function detectExactQuantity(rawText: string): number {
+    const norm = normalizeText(rawText)
 
-    // Si tiene mención explícita de números
-    const match = norm.match(/\b(\d+)\b/)
-    if (match) return { quantity: parseInt(match[1], 10), isExplicit: true }
+    // Solo si el usuario pronunció una cifra numérica o palabra de número CLARA
+    const digitsMatch = norm.match(/\b(\d+)\b/)
+    if (digitsMatch) {
+      const parsed = parseInt(digitsMatch[1], 10)
+      if (parsed > 0 && parsed < 500) return parsed
+    }
 
-    if (/\b(dos|2)\b/.test(norm)) return { quantity: 2, isExplicit: true }
-    if (/\b(tres|3)\b/.test(norm)) return { quantity: 3, isExplicit: true }
-    if (/\b(cuatro|4)\b/.test(norm)) return { quantity: 4, isExplicit: true }
-    if (/\b(cinco|5)\b/.test(norm)) return { quantity: 5, isExplicit: true }
-    if (/\b(diez|10)\b/.test(norm)) return { quantity: 10, isExplicit: true }
+    if (/\b(dos|2)\b/.test(norm)) return 2
+    if (/\b(tres|3)\b/.test(norm)) return 3
+    if (/\b(cuatro|4)\b/.test(norm)) return 4
+    if (/\b(cinco|5)\b/.test(norm)) return 5
+    if (/\b(diez|10)\b/.test(norm)) return 10
+    if (/\b(veinte|20)\b/.test(norm)) return 20
+    if (/\b(cincuenta|50)\b/.test(norm)) return 50
+    if (/\b(cien|100)\b/.test(norm)) return 100
 
-    // Por defecto es SIEMPRE 1
-    return { quantity: 1, isExplicit: false }
+    // Si no dijo un número explícito, la cantidad por defecto es estrictamente 1
+    return 1
   }
 
   function processVoiceCommand(rawText: string) {
     const textNorm = normalizeText(rawText)
 
-    // 1. COMANDO DE VACIAR O LIMPIAR TODO EL CARRITO
+    // 1. COMANDO VACIAR / LIMPIAR TODO
     if (/\b(vaciar|limpiar|borrar todo|eliminar todo)\b/.test(textNorm)) {
       clear()
       speak("Carrito vaciado por completo.")
       return
     }
 
-    // 2. COMANDO DE ELIMINAR / QUITAR UN PRODUCTO
+    // 2. DETECTAR SI ES UN COMANDO DE ELIMINAR / QUITAR
     const isDeleteCommand = /\b(elimina|eliminar|quita|quitar|borra|borrar)\b/.test(textNorm)
 
-    // Limpiar palabras comando del texto para buscar el producto
-    let cleanText = textNorm
+    // Limpieza de palabras de relleno
+    const cleanText = textNorm
       .replace(/de\s+\d+\s*(centimos|centimo|céntimos|céntimo|soles|sol)/g, "")
       .replace(/\b(agrega|añade|pon|dame|lleva|elimina|eliminar|quita|quitar|borra|borrar|por favor|un|una|de|del|los|las)\b/g, " ")
-      .replace(/\b(\d+|dos|tres|cuatro|cinco|diez)\b/g, " ")
+      .replace(/\b(\d+|dos|tres|cuatro|cinco|diez|veinte|cincuenta|cien)\b/g, " ")
       .trim()
 
-    // Encontrar el producto más cercano en la tienda
+    if (!cleanText) {
+      speak("No entendí el producto.")
+      return
+    }
+
+    // Búsqueda del producto en la tienda
     let bestMatch: any = null
     let maxScore = 0
 
@@ -137,17 +148,17 @@ export function VoiceAssistant() {
 
     if (bestMatch && maxScore > 0) {
       if (isDeleteCommand) {
-        // Buscar si el producto está actualmente en el carrito para eliminarlo
+        // Quitar ítem del carrito
         const cartItemIndex = items.findIndex((it) => it.serviceId === bestMatch.id)
         if (cartItemIndex > -1) {
           removeItem(items[cartItemIndex].id)
-          speak(`Eliminado ${bestMatch.name} del carrito.`)
+          speak(`Eliminado ${bestMatch.name}.`)
         } else {
           speak(`${bestMatch.name} no está en el carrito.`)
         }
       } else {
-        // AGREGAR PRODUCTO (Cantidad exacta)
-        const { quantity } = extractQuantity(rawText)
+        // Agregar ítem con la cantidad exacta detectada
+        const quantity = detectExactQuantity(rawText)
 
         addItem({
           serviceId: bestMatch.id,
@@ -160,7 +171,7 @@ export function VoiceAssistant() {
         speak(`Agregado ${quantity > 1 ? quantity : ""} ${bestMatch.name}.`)
       }
     } else {
-      speak(`No reconocí ese producto en la tienda.`)
+      speak(`No encontré "${cleanText}" en la lista de productos.`)
     }
   }
 
